@@ -61,50 +61,138 @@ void error(int i) {
   exit(1);
 }
 
+// shape of Node
+enum {
+  ND_NUM = 256,
+};
+
+typedef struct Node {
+  int ty;           
+  int op; // added this
+  struct Node *lhs; 
+  struct Node *rhs; 
+  int val;          
+} Node;
+
+Node *new_node(int op, Node *lhs, Node *rhs) {
+  Node *node = malloc(sizeof(Node));
+  node->op = op;
+  node->lhs = lhs;
+  node->rhs = rhs;
+  return node;
+}
+
+Node *new_node_num(int val) {
+  Node *node = malloc(sizeof(Node));
+  node->op = ND_NUM;
+  node->val = val;
+  return node;
+}
+
+static Node *mul();
+
+Node *mul() {
+  int i = 0;
+  Node *lhs = term();
+  if (tokens[i].ty == TK_EOF)
+    return lhs;
+  if (tokens[i].ty == '*') {
+    i++;
+    return new_node('*', lhs, mul());
+  }
+  if (tokens[i].ty == '/') {
+    i++;
+    return new_node('/', lhs, mul());
+  }
+  printf("unexpected token: %s",
+        tokens[i].input);
+}
+
+
+Node *expr() {
+  int i = 0;
+  Node *lhs = mul();
+  if (tokens[i].ty == TK_EOF)
+    return lhs;
+  if (tokens[i].ty == '+') {
+    i++;
+    return new_node('+', lhs, expr());
+  }
+  if (tokens[i].ty == '-') {
+    i++;
+    return new_node('-', lhs, expr());
+  }
+  printf("un expected token: %s",
+        tokens[i].input);
+}
+
+int term() {
+  int i = 0;
+  if (tokens[i].ty == TK_NUM)
+    return new_node_num(tokens[i++].val);
+  if (tokens[i].ty == '(') {
+    i++;
+    Node *node = expr();
+    if (tokens[i].ty != ')')
+      printf("there is no closing braket for the opened braket: %s", tokens[i].input);
+    i++;
+    return node;
+  }
+  printf("the token is not a braket or a number: %s", tokens[i].input);
+}
+
+// codes to generate stack machine like code
+void gen(Node *node) {
+  if (node->ty == ND_NUM) {
+   printf(" push %d\n", node->val);
+   return;
+  }
+
+  gen(node->lhs);
+  gen(node->rhs);
+
+  printf(" pop rdi\n");
+  printf(" pop rax\n");
+
+  switch (node->ty){
+  case '+':
+    printf(" add rax, rdi\n");
+    break;
+  case '-':
+    printf(" sub rax, rdi\n");
+    break;
+  case '*':
+    printf(" mul rdi\n");
+    break;
+  case '/':
+    printf(" mov rdx, 0\n");
+    printf(" div rdi\n");
+  }
+}
+
+
 int main(int argc, char **argv) {
 	if (argc !=2) {
 		fprintf(stderr, "wrong number of inputs\n");
 		return 1;
 	}
-
+	
+	// tokenize and parse
 	tokenize(argv[1]);
+	Node* node = expr();
 
         // output the magical spell
 	printf(".intel_syntax noprefix\n");
 	printf(".global main\n");
 	printf("main:\n");
 
-	// check if the first input is a number
-	// then print the first mov
-	if (tokens[0].ty != TK_NUM)
-	  error(0);
-	printf("  mov rax, %d\n", tokens[0].val);
-	
-	// consume tokens like + (num) and - (num)
-	//print out assenbly
-	int i = 1;
-	while (tokens[i].ty != TK_EOF) {
-	  if (tokens[i].ty == '+') {
-	    i++;
-	    if (tokens[i].ty != TK_NUM)
-	      error(i);
-	    printf("  add rax, %d\n", tokens[i].val);
-	    i++;
-	    continue;
-	  }
+	// generate the code following the tree
+	gen(node);
 
-          if (tokens[i].ty == '-') {
-            i++;
-            if (tokens[i].ty != TK_NUM)
-              error(i);
-            printf("  sub rax, %d\n", tokens[i].val);
-            i++;
-            continue;
-          }
-
-	  error(i);
-	}
-
+	// the output is in the top of the stack
+	// load it to RAX and make it the output of the function
+	printf(" pop rax\n");
 	printf(" ret\n");
 	return 0;
 }
+
